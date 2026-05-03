@@ -1,0 +1,27 @@
+# PyInstaller 构建产物
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+
+# 工具配置（含个人路径，不上传）
+.claude/
+
+# 临时 / 测试文件
+Response.txt
+_test*.py
+_debug*.py
+
+# 生成的二进制文档（可本地生成）
+用户使用手册.docx
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini

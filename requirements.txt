@@ -1,0 +1,6 @@
+# 核心解析引擎
+streamlink>=6.0.0
+yt-dlp>=2024.1.0
+
+# 打包工具
+pyinstaller>=6.3.0
