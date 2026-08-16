@@ -1,4 +1,10 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-"%USERPROFILE%\anaconda3\envs\livestream\python.exe" src\main.py
+
+set "ARENA_PYTHON=%USERPROFILE%\anaconda3\envs\livestream\python.exe"
+if exist "%ARENA_PYTHON%" (
+    "%ARENA_PYTHON%" src\main.py
+) else (
+    python src\main.py
+)

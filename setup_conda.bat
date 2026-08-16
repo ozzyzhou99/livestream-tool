@@ -1,10 +1,11 @@
 @echo off
 chcp 65001 >nul
-title 直播解析工具 — Conda 环境配置
+title Arena Stream — Conda 环境配置
+cd /d "%~dp0"
 
 echo.
 echo ╔══════════════════════════════════════════════╗
-echo ║   直播解析工具 — Conda 环境配置脚本           ║
+echo ║   Arena Stream — Conda 环境配置脚本           ║
 echo ╚══════════════════════════════════════════════╝
 echo.
 
@@ -48,6 +49,13 @@ echo [3/4] 安装依赖包...
 pip install -r requirements.txt
 if errorlevel 1 (
     echo [警告] 部分包安装失败，请检查错误信息。
+)
+
+echo.
+echo       安装深度解析所需 Chromium...
+python -m playwright install chromium
+if errorlevel 1 (
+    echo [警告] Chromium 安装失败，基础搜索和解析仍可使用。
 )
 
 echo.

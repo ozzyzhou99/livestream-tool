@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090b0e">
+  <title>Arena Stream · 体育直播搜索</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="体育分类">
+      <a class="brand" href="#" aria-label="Arena Stream 首页">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M7 24 16 5l9 19h-5l-1.8-4H12l-1.8 4H7Zm6.7-8h4.6L16 10.8 13.7 16Z"/></svg>
+        </span>
+        <span>ARENA<em>STREAM</em></span>
+      </a>
+
+      <nav class="sport-nav">
+        <p class="nav-label">赛事频道</p>
+        <button class="nav-item active" data-sport="all">
+          <span class="nav-icon">⌁</span><span>全部直播</span>
+        </button>
+        <button class="nav-item" data-sport="football">
+          <span class="nav-icon">⚽</span><span>足球</span>
+        </button>
+        <button class="nav-item" data-sport="basketball">
+          <span class="nav-icon">●</span><span>篮球</span>
+        </button>
+        <button class="nav-item" data-sport="f1">
+          <span class="nav-icon">F1</span><span>一级方程式</span>
+        </button>
+        <button class="nav-item" data-sport="nfl">
+          <span class="nav-icon">◆</span><span>橄榄球</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-note">
+        <span class="pulse-dot"></span>
+        <div><strong>浏览器播放引擎</strong><small>HLS · HTML5 · 官方嵌入</small></div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button class="mobile-brand" type="button" aria-label="打开分类菜单">AS</button>
+        <form id="searchForm" class="search-box" role="search">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.35-4.35m2.35-5.15A7.5 7.5 0 1 1 4 11.5a7.5 7.5 0 0 1 15 0Z"/></svg>
+          <input id="searchInput" type="search" maxlength="120" autocomplete="off" placeholder="搜索球队、联赛、车手，或粘贴直播页面 URL">
+          <kbd>ENTER</kbd>
+          <button type="submit">搜索直播</button>
+        </form>
+        <label class="depth-toggle" title="同时运行站点定向搜索与无痕浏览器网络观察">
+          <input id="deepMode" type="checkbox" checked>
+          <span></span>
+          <b>深度模式</b>
+        </label>
+        <div class="engine-status" title="本地服务运行中"><span></span>本地引擎</div>
+      </header>
+
+      <section class="hero">
+        <div>
+          <p class="eyebrow"><span></span> LIVE SPORTS DISCOVERY</p>
+          <h1>找到此刻<br><em>正在发生</em>的比赛。</h1>
+          <p class="hero-copy">多引擎并行检索中文直播，依次运行站点插件、页面脚本扫描与无痕浏览器网络观察。</p>
+        </div>
+        <div class="hero-orbit" aria-hidden="true">
+          <div class="orbit-ring ring-one"></div>
+          <div class="orbit-ring ring-two"></div>
+          <div class="score-card">
+            <span>LIVE</span>
+            <strong>90<span>:</span>00</strong>
+            <small>THE GAME IS ON</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="results-section" aria-labelledby="resultsTitle">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">DISCOVER</p>
+            <h2 id="resultsTitle">正在直播</h2>
+          </div>
+          <div class="filter-row" role="group" aria-label="直播状态筛选">
+            <button class="filter active" data-status="all">全部</button>
+            <button class="filter" data-status="live"><span></span>直播中</button>
+            <button class="filter" data-status="upcoming">即将开始</button>
+            <button class="filter" data-status="replay">回放</button>
+          </div>
+        </div>
+
+        <div id="notice" class="notice" role="status" aria-live="polite"></div>
+        <div id="resultsGrid" class="results-grid" aria-live="polite"></div>
+
+        <div id="emptyState" class="empty-state" hidden>
+          <div class="empty-icon">⌕</div>
+          <h3>没有找到匹配的公开直播</h3>
+          <p>换一个球队、联赛或赛事名称试试，也可以直接粘贴直播页面地址。</p>
+        </div>
+      </section>
+
+      <footer>
+        <span>ARENA STREAM / 3.0.1 LOCAL LAB</span>
+        <p>仅解析公开、无 DRM 且你有权访问的内容。</p>
+      </footer>
+    </main>
+  </div>
+
+  <dialog id="playerDialog" class="player-dialog">
+    <div class="player-frame">
+      <div class="player-toolbar">
+        <div><span class="live-pill">LIVE</span><strong id="playerTitle">直播播放</strong></div>
+        <button id="closePlayer" class="icon-button" type="button" aria-label="关闭播放器">×</button>
+      </div>
+      <div id="playerStage" class="player-stage">
+        <video id="videoPlayer" controls playsinline></video>
+        <iframe id="embedPlayer" title="直播播放器" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+        <div id="playerLoading" class="player-loading"><span></span><p>正在解析直播源…</p></div>
+      </div>
+      <div class="player-meta">
+        <div>
+          <small id="playerProvider">SOURCE</small>
+          <p id="playerMessage">浏览器播放模式</p>
+        </div>
+        <div class="player-actions">
+          <button id="copyUrl" class="secondary-button" type="button">复制媒体地址</button>
+          <a id="openSource" class="primary-link" href="#" target="_blank" rel="noopener noreferrer">打开原页面 ↗</a>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/vendor/hls.min.js"></script>
+  <script src="/vendor/mpegts.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

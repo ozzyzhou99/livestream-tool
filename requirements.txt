@@ -1,6 +1,11 @@
-# 核心解析引擎
-streamlink>=6.0.0
-yt-dlp>=2024.1.0
+# 搜索与页面流解析
+streamlink>=8.0.0
+yt-dlp>=2026.3.17
+ddgs>=9.11.3
+playwright>=1.55.0
 
-# 打包工具
+# 本地 HLS 代理
+requests>=2.31.0
+
+# 可选：打包为单文件程序
 pyinstaller>=6.3.0
