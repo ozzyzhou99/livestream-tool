@@ -1,5 +1,17 @@
 # Arena Stream
 
+<div align="center">
+
+[中文](#中文) · [English](#english)
+
+</div>
+
+---
+
+<a id="中文"></a>
+
+# 中文
+
 面向体育赛事的本地直播搜索、深度解析与浏览器播放工具。输入中文或英文的球队、联赛、车手和赛事关键词，应用会并行检索公开视频平台与中文直播站点，再按层级分析页面中的公开媒体流。
 
 > 本项目只处理公开、无 DRM 且用户有权访问的内容。它不会绕过登录、付费墙、地域限制或 DRM。
@@ -98,11 +110,124 @@ python -m unittest discover -s tests -v
 
 ## 技术参考
 
-- [hls.js](https://github.com/video-dev/hls.js) — 浏览器 HLS/MSE 播放
-- [mpegts.js](https://github.com/xqq/mpegts.js) — 浏览器 HTTP-FLV/MPEG-TS 播放
-- [Streamlink](https://github.com/streamlink/streamlink) — 直播站点解析
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — 公共视频搜索与媒体信息提取
-- [DDGS](https://github.com/deedy5/duckduckgo_search) — 无密钥网页与视频元搜索
-- [Playwright](https://playwright.dev/python/) — 隔离浏览器网络观察
+- [hls.js](https://github.com/video-dev/hls.js)：浏览器 HLS/MSE 播放
+- [mpegts.js](https://github.com/xqq/mpegts.js)：浏览器 HTTP-FLV/MPEG-TS 播放
+- [Streamlink](https://github.com/streamlink/streamlink)：直播站点解析
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)：公共视频搜索与媒体信息提取
+- [DDGS](https://github.com/deedy5/duckduckgo_search)：无密钥网页与视频元搜索
+- [Playwright](https://playwright.dev/python/)：隔离浏览器网络观察
 
 第三方前端库的许可证文件保存在 `src/web/vendor/`。
+
+---
+
+<a id="english"></a>
+
+# English
+
+Arena Stream is a local sports stream search, resolution, and browser playback tool. Enter a team, league, driver, or event name in Chinese or English. The app searches public video platforms and Chinese streaming sites in parallel, then analyzes public media streams through a layered resolution pipeline.
+
+> This project handles public, DRM-free content that you have the right to access. It does not bypass authentication, paywalls, geographic restrictions, or DRM.
+
+## Why Browser Playback
+
+Version 3.0 uses a local web architecture and removes PotPlayer as the primary player. The browser interface combines search, filtering, official embeds, and several stream formats. `hls.js` handles HLS, `mpegts.js` handles HTTP-FLV, and the local Python proxy supplies cross-origin access, relative segment paths, and Referer headers for permitted sources. You can open the source page or copy the resolved media URL when the browser cannot play a stream.
+
+## Features
+
+- Keyword search for football, basketball, Formula 1, American football, and other sports
+- Parallel Chinese query expansion, YouTube video search, DuckDuckGo video and web search, and targeted Chinese site search
+- Targeted coverage for public pages on Bilibili Live, Douyu, Huya, Douyin Live, Yangshipin, CCTV, Weibo, and Kuaishou
+- Deep Mode expands the search scope and observes browser network traffic before playback
+- Accepts live page URLs and direct `.m3u8`, `.flv`, `.mp4`, or `.webm` URLs
+- YouTube playback through the privacy-enhanced official embed player
+- Layered resolution: Streamlink → yt-dlp → HTML and embedded JSON scan → isolated Chromium network observation
+- Browser playback for HLS, HTTP-FLV, and native HTML5 video
+- Detection for common DRM markers in DASH and HLS; the resolver stops and sends you back to the authorized platform when it finds protected media
+- Local HLS manifest rewriting for relative segments, keys, and child playlists
+- Proxy protection against loopback and private network targets to reduce SSRF risk
+- Responsive sports interface with category and live-status filters
+
+## Getting Started
+
+### Windows Setup
+
+Run this file once:
+
+```text
+setup_conda.bat
+```
+
+Then double-click:
+
+```text
+run.bat
+```
+
+The app listens on `127.0.0.1:8765` and opens your browser. If another process uses that port, Arena Stream selects an available port.
+
+### Standard Python Environment
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m playwright install chromium
+.venv\Scripts\python src\main.py
+```
+
+Available options:
+
+```text
+python src/main.py --port 9000 --no-browser
+```
+
+## Usage
+
+1. Enter a team, league, or event, such as `Arsenal`, `NBA Finals`, or `Monaco GP`.
+2. Select a sport from the sidebar and choose a search result.
+3. Enable Deep Mode to validate the target before playback. The resolver tries site plugins, generic extraction, static page scanning, and isolated browser network observation in order. YouTube uses the official embed player.
+4. Paste a full `https://` URL into the search box to create a resolvable result card.
+
+Results depend on platform availability, live status, and your network. Paid sports platforms often require their website or official app. Arena Stream does not extract protected media from those services.
+
+## Architecture
+
+```text
+src/
+├── main.py              # Command-line entry point and browser launch
+├── server.py            # Local HTTP/API and static asset server
+├── search.py            # Extensible search providers and sport categories
+├── resolver.py          # Layered resolution, format selection, and DRM stop policy
+├── discovery.py         # HTML/JSON scan and isolated browser network observation
+├── proxy.py             # Safe media proxy and HLS manifest rewriting
+├── domain.py            # Search and playback data objects
+└── web/
+    ├── index.html       # Search and player interface
+    ├── styles.css
+    ├── app.js
+    └── vendor/          # Local hls.js, mpegts.js, and license files
+tests/                   # Standard library unittest suite
+```
+
+Add providers through `SearchService.providers`. A provider for an official sports API, a licensed private catalog, or another public video platform can follow the return interface used by `YouTubeSearchProvider.search()`.
+
+## Testing
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+## Packaging
+
+Double-click `build.bat` to create `dist\ArenaStream.exe`. The package includes the web assets, `hls.js`, `mpegts.js`, and the Playwright Python runtime. `setup_conda.bat` installs the Chromium browser files on your computer. Without Chromium, Arena Stream uses static scanning and generic resolution.
+
+## Technical References
+
+- [hls.js](https://github.com/video-dev/hls.js): HLS/MSE playback in the browser
+- [mpegts.js](https://github.com/xqq/mpegts.js): HTTP-FLV/MPEG-TS playback in the browser
+- [Streamlink](https://github.com/streamlink/streamlink): live streaming site resolution
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp): public video search and media information extraction
+- [DDGS](https://github.com/deedy5/duckduckgo_search): web and video metasearch without an API key
+- [Playwright](https://playwright.dev/python/): isolated browser network observation
+
+You can find the third-party frontend licenses in `src/web/vendor/`.
