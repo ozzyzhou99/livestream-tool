@@ -71,8 +71,8 @@ class ArenaRequestHandler(BaseHTTPRequestHandler):
             self._json({
                 "ok": True,
                 "service": "arena-stream",
-                "version": "3.0.1",
-                "capabilities": ["youtube-search", "chinese-web-search", "streamlink", "yt-dlp", "html-scan", "browser-network-scan"],
+                "version": "3.3.0",
+                "capabilities": ["official-cctv-channels", "bing-web-search", "public-live-room-discovery", "youtube-search", "chinese-web-search", "streamlink", "yt-dlp", "hls", "mpeg-dash", "http-flv", "html-scan", "browser-network-scan"],
             })
             return
         if parsed.path == "/api/search":
@@ -123,7 +123,7 @@ class ArenaRequestHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
             return
         data = resolved.to_dict()
-        if resolved.kind != "embed":
+        if resolved.kind not in {"embed", "external"}:
             data["proxy_url"] = proxy_url(resolved.playback_url, resolved.referer)
         self._json(data)
 

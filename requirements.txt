@@ -1,6 +1,6 @@
 # 搜索与页面流解析
 streamlink>=8.0.0
-yt-dlp>=2026.3.17
+yt-dlp>=2026.8.19
 ddgs>=9.11.3
 playwright>=1.55.0
 

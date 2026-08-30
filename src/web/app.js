@@ -7,6 +7,7 @@
     query: "",
     results: [],
     hls: null,
+    dash: null,
     mpegts: null,
     currentResolved: null,
     searchController: null,
@@ -55,6 +56,15 @@
     return url.toString();
   }
 
+  function proxiedMediaUrl(rawUrl, referer) {
+    if (!/^https?:\/\//i.test(rawUrl)) return rawUrl;
+    const localProxy = `${window.location.origin}/api/proxy`;
+    if (rawUrl.startsWith(localProxy)) return rawUrl;
+    const params = new URLSearchParams({ url: rawUrl });
+    if (referer) params.set("referer", referer);
+    return `/api/proxy?${params}`;
+  }
+
   function showSkeletons() {
     empty.hidden = true;
     grid.replaceChildren();
@@ -82,7 +92,13 @@
       if (epoch !== state.searchEpoch) return;
       state.results = payload.results || [];
       const sourceCount = new Set(state.results.map((item) => item.provider)).size;
-      notice.textContent = `找到 ${state.results.length} 个结果 · ${sourceCount} 个来源 · 播放前执行${deep ? "深度" : "快速"}解析`;
+      const officialOnly = state.results.length > 0 && state.results.every((item) => item.source_type === "official-channel");
+      const directoryOnly = state.results.length > 0 && state.results.every((item) => ["official-channel", "platform-search"].includes(item.source_type));
+      notice.textContent = officialOnly
+        ? `已提供 ${state.results.length} 个央视官方体育频道 · 点击后在官方播放器观看`
+        : directoryOnly
+          ? `已提供 ${state.results.length} 个直播平台搜索入口 · 点击后在对应平台查找当前直播间`
+          : `找到 ${state.results.length} 个结果 · ${sourceCount} 个来源 · 播放前执行${deep ? "深度" : "快速"}解析`;
       renderResults();
     } catch (error) {
       if (error.name === "AbortError" || epoch !== state.searchEpoch) return;
@@ -103,11 +119,20 @@
   }
 
   function createCard(item) {
-    const card = document.createElement("article");
-    card.className = "stream-card";
-    card.tabIndex = 0;
-    card.setAttribute("role", "button");
-    card.setAttribute("aria-label", `播放 ${item.title}`);
+    const isOfficial = item.source_type === "official-channel";
+    const isPlatformSearch = item.source_type === "platform-search";
+    const isExternalLink = isOfficial || isPlatformSearch;
+    const card = document.createElement(isExternalLink ? "a" : "article");
+    card.className = item.source_type === "official-channel" ? "stream-card official-channel" : "stream-card";
+    card.setAttribute("aria-label", isExternalLink ? `打开 ${item.title}` : `播放 ${item.title}`);
+    if (isExternalLink) {
+      card.href = item.url;
+      card.target = "_blank";
+      card.rel = "noopener noreferrer";
+    } else {
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+    }
 
     const media = document.createElement("div");
     media.className = "card-media";
@@ -119,13 +144,18 @@
       image.referrerPolicy = "no-referrer";
       image.addEventListener("error", () => image.remove());
       media.appendChild(image);
+    } else if (item.source_type === "official-channel") {
+      const logo = document.createElement("strong");
+      logo.className = "channel-logo";
+      logo.textContent = item.title.startsWith("CCTV-5+") ? "CCTV 5+" : "CCTV 5";
+      media.appendChild(logo);
     }
     const badge = document.createElement("span");
     badge.className = `status-badge ${item.live_status}`;
     badge.textContent = statusLabels[item.live_status] || statusLabels.unknown;
     const play = document.createElement("span");
     play.className = "play-button";
-    play.textContent = "▶";
+    play.textContent = isExternalLink ? "↗" : "▶";
     media.append(badge, play);
 
     const body = document.createElement("div");
@@ -146,13 +176,15 @@
     channel.textContent = item.channel || item.description || "待解析的直播页面";
     body.append(overline, heading, channel);
     card.append(media, body);
-    card.addEventListener("click", () => playResult(item));
-    card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        playResult(item);
-      }
-    });
+    if (!isExternalLink) {
+      card.addEventListener("click", () => playResult(item));
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          playResult(item);
+        }
+      });
+    }
     return card;
   }
 
@@ -160,6 +192,10 @@
     if (state.hls) {
       state.hls.destroy();
       state.hls = null;
+    }
+    if (state.dash) {
+      state.dash.destroy();
+      state.dash = null;
     }
     if (state.mpegts) {
       state.mpegts.destroy();
@@ -202,6 +238,14 @@
         playerMessage.textContent = "使用平台官方嵌入播放器";
         return;
       }
+      if (resolved.kind === "external") {
+        const message = document.createElement("p");
+        message.textContent = "该频道由央视官方播放器提供。请点击下方“打开原页面”观看；地区或赛事版权限制仍由央视决定。";
+        loading.replaceChildren(message);
+        loading.style.display = "grid";
+        playerMessage.textContent = "央视官方播放 · 不抓取或代理受限频道信号";
+        return;
+      }
       video.style.display = "block";
       const path = Array.isArray(resolved.diagnostics) ? resolved.diagnostics.slice(-2).join(" → ") : "";
       playerMessage.textContent = `${resolved.engine} · ${path || "浏览器播放"}`;
@@ -213,6 +257,18 @@
         state.hls.on(window.Hls.Events.ERROR, (_, data) => {
           if (data.fatal) playerMessage.textContent = `播放失败：${data.details || "媒体流不可用"}`;
         });
+      } else if (resolved.kind === "dash" && window.dashjs) {
+        const player = window.dashjs.MediaPlayer().create();
+        player.extend("RequestModifier", () => ({
+          modifyRequestURL: (url) => proxiedMediaUrl(url, resolved.referer || resolved.source_url),
+          modifyRequestHeader: (xhr) => xhr,
+        }), true);
+        player.on(window.dashjs.MediaPlayer.events.ERROR, (event) => {
+          const detail = event && event.error ? event.error.message || event.error.code : "媒体流不可用";
+          playerMessage.textContent = `DASH 播放失败：${detail}`;
+        });
+        player.initialize(video, resolved.playback_url, true);
+        state.dash = player;
       } else if (resolved.kind === "flv" && window.mpegts && window.mpegts.isSupported()) {
         state.mpegts = window.mpegts.createPlayer({ type: "flv", isLive: true, url: resolved.proxy_url }, { enableWorker: true, liveBufferLatencyChasing: true });
         state.mpegts.attachMediaElement(video);

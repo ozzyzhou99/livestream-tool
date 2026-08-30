@@ -45,10 +45,12 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/4] 安装依赖包...
-pip install -r requirements.txt
+echo [3/4] 安装并更新依赖包...
+python -m pip install --upgrade --upgrade-strategy only-if-needed -r requirements.txt
 if errorlevel 1 (
-    echo [警告] 部分包安装失败，请检查错误信息。
+    echo [错误] 依赖安装失败，请检查网络连接和上方错误信息。
+    pause
+    exit /b 1
 )
 
 echo.
@@ -62,6 +64,7 @@ echo.
 echo [4/4] 验证安装...
 python -c "import streamlink; print('  streamlink:', streamlink.__version__)"
 python -c "import yt_dlp; print('  yt-dlp:    ', yt_dlp.version.__version__)"
+python -c "import ddgs, playwright, requests; print('  搜索、浏览器与代理组件: OK')"
 python -c "import PyInstaller; print('  PyInstaller:', PyInstaller.__version__)"
 
 echo.

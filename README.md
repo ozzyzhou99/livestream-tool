@@ -18,18 +18,21 @@
 
 ## 为什么使用浏览器播放
 
-3.0 版完全采用本地 Web 架构，不再把 PotPlayer 作为主播放器。浏览器路线更适合搜索、筛选、官方嵌入和多种流格式统一播放；`hls.js` 负责 HLS，`mpegts.js` 负责 HTTP-FLV，本地 Python 代理处理合法来源常见的跨域、相对分片路径和 Referer 请求头。对于无法在浏览器播放的内容，界面仍可打开原页面或复制解析后的媒体地址。
+3.3 版完全采用本地 Web 架构，不再把 PotPlayer 作为主播放器。浏览器路线更适合搜索、筛选、官方嵌入和多种流格式统一播放；`hls.js` 负责 HLS，`dash.js` 负责无 DRM 的 MPEG-DASH，`mpegts.js` 负责 HTTP-FLV，本地 Python 代理处理合法来源常见的跨域、相对分片路径和 Referer 请求头。对于无法在浏览器播放的内容，界面仍可打开原页面或复制解析后的媒体地址。
 
 ## 功能
 
 - 关键词搜索：足球、篮球、F1、橄榄球及综合体育
-- 中文关键词扩展、YouTube 视频检索、DuckDuckGo 视频/网页检索和中文站点定向搜索并行执行
+- 中文关键词扩展、YouTube 视频检索、Bing RSS 网页检索、DuckDuckGo 视频/网页检索和直播平台定向搜索并行执行
 - 定向覆盖哔哩哔哩直播、斗鱼、虎牙、抖音直播、央视频、央视网、微博和快手等公开页面
 - “深度模式”扩大搜索范围，并在播放前启用动态网络观察
-- 支持直接粘贴直播页面、`.m3u8`、`.flv`、`.mp4` 或 `.webm` 地址
+- 支持直接粘贴直播页面、`.m3u8`、`.mpd`、`.flv`、`.mp4` 或 `.webm` 地址
+- 内置 CCTV-5 与 CCTV-5+ 官方频道入口；空白搜索或输入“央视五套”“CCTV-5”即可直达央视播放器
+- 深度模式定向查找 Bilibili、Twitch、虎牙、斗鱼、抖音、YouTube、央视频、FIFA+、Olympics.com 与 Red Bull 等公开直播间页面
+- 每次关键词搜索附带 Bilibili 直播、虎牙、斗鱼、Twitch 与 YouTube 的平台内搜索入口，避免外部搜索引擎没有收录刚开播房间时无路可找
 - YouTube 使用隐私增强型官方嵌入播放器
 - 分层解析：Streamlink → yt-dlp → HTML/内嵌 JSON 扫描 → 隔离 Chromium 网络观察
-- 浏览器内 HLS、HTTP-FLV 和原生 HTML5 视频播放
+- 浏览器内 HLS、无 DRM MPEG-DASH、HTTP-FLV 和原生 HTML5 视频播放
 - 识别 DASH/HLS 中常见 DRM 标记；检测到保护时停止解析并提示回到授权平台
 - 本地 HLS 清单重写代理，自动处理分片、密钥和子清单相对地址
 - 代理拒绝本机和私网目标，降低 SSRF 风险
@@ -45,7 +48,7 @@
 setup_conda.bat
 ```
 
-之后双击：
+之后双击；脚本会自动识别项目 `.venv`、Anaconda、Miniconda 或 Conda 自定义安装目录：
 
 ```text
 run.bat
@@ -75,7 +78,7 @@ python src/main.py --port 9000 --no-browser
 3. 可勾选“深度模式”。应用会在播放前验证目标，并依次尝试站点插件、通用提取、静态页面扫描和隔离浏览器网络观察；YouTube 使用官方嵌入。
 4. 如果搜索框里输入完整 `https://` 地址，会直接生成可解析的结果卡片。
 
-搜索结果受平台可用性、直播状态和网络环境影响。付费体育平台通常要求在其原站或官方 App 中观看，本项目不会尝试提取其受保护媒体。
+搜索结果受平台可用性、直播状态和网络环境影响。CCTV-5/CCTV-5+ 由央视官方页面播放，能否观看取决于所在地区与具体赛事的版权范围；工具不会绕过地区限制。付费体育平台通常要求在其原站或官方 App 中观看，本项目不会尝试提取其受保护媒体。
 
 ## 架构
 
@@ -92,7 +95,7 @@ src/
     ├── index.html       # 搜索与播放器界面
     ├── styles.css
     ├── app.js
-    └── vendor/          # 本地 hls.js、mpegts.js 及许可证
+    └── vendor/          # 本地 hls.js、dash.js、mpegts.js 及许可证
 tests/                   # 标准库 unittest 测试
 ```
 
@@ -106,11 +109,12 @@ python -m unittest discover -s tests -v
 
 ## 打包
 
-双击 `build.bat`，输出为 `dist\ArenaStream.exe`。Web 资源、`hls.js`、`mpegts.js` 与 Playwright Python 运行库会一并打包。Chromium 浏览器文件仍由 `setup_conda.bat` 安装在本机；若未安装，应用会自动退回静态扫描和通用解析。
+双击 `build.bat`，输出为 `dist\ArenaStream.exe`。构建脚本只替换这个目标文件，不会删除 `dist` 中已有的版本化发行文件。Web 资源、`hls.js`、`dash.js`、`mpegts.js` 与 Playwright Python 运行库会一并打包。Chromium 浏览器文件仍由 `setup_conda.bat` 安装在本机；若未安装，应用会自动退回静态扫描和通用解析。
 
 ## 技术参考
 
 - [hls.js](https://github.com/video-dev/hls.js)：浏览器 HLS/MSE 播放
+- [dash.js](https://github.com/Dash-Industry-Forum/dash.js)：浏览器无 DRM MPEG-DASH 播放
 - [mpegts.js](https://github.com/xqq/mpegts.js)：浏览器 HTTP-FLV/MPEG-TS 播放
 - [Streamlink](https://github.com/streamlink/streamlink)：直播站点解析
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)：公共视频搜索与媒体信息提取
@@ -131,18 +135,21 @@ Arena Stream is a local sports stream search, resolution, and browser playback t
 
 ## Why Browser Playback
 
-Version 3.0 uses a local web architecture and removes PotPlayer as the primary player. The browser interface combines search, filtering, official embeds, and several stream formats. `hls.js` handles HLS, `mpegts.js` handles HTTP-FLV, and the local Python proxy supplies cross-origin access, relative segment paths, and Referer headers for permitted sources. You can open the source page or copy the resolved media URL when the browser cannot play a stream.
+Version 3.3 uses a local web architecture and removes PotPlayer as the primary player. The browser interface combines search, filtering, official embeds, and several stream formats. `hls.js` handles HLS, `dash.js` handles DRM-free MPEG-DASH, `mpegts.js` handles HTTP-FLV, and the local Python proxy supplies cross-origin access, relative segment paths, and Referer headers for permitted sources. You can open the source page or copy the resolved media URL when the browser cannot play a stream.
 
 ## Features
 
 - Keyword search for football, basketball, Formula 1, American football, and other sports
-- Parallel Chinese query expansion, YouTube video search, DuckDuckGo video and web search, and targeted Chinese site search
+- Parallel Chinese query expansion, YouTube video search, Bing RSS web search, DuckDuckGo video and web search, and targeted streaming-platform search
 - Targeted coverage for public pages on Bilibili Live, Douyu, Huya, Douyin Live, Yangshipin, CCTV, Weibo, and Kuaishou
 - Deep Mode expands the search scope and observes browser network traffic before playback
-- Accepts live page URLs and direct `.m3u8`, `.flv`, `.mp4`, or `.webm` URLs
+- Accepts live page URLs and direct `.m3u8`, `.mpd`, `.flv`, `.mp4`, or `.webm` URLs
+- Built-in official CCTV-5 and CCTV-5+ channel entries; use an empty search or enter `CCTV-5` to open the CCTV player
+- Deep Mode targets public live-room pages on Bilibili, Twitch, Huya, Douyu, Douyin, YouTube, Yangshipin, FIFA+, Olympics.com, and Red Bull
+- Every keyword search includes direct platform-search entries for Bilibili Live, Huya, Douyu, Twitch, and YouTube, which helps when a newly started room has not yet been indexed by external search engines
 - YouTube playback through the privacy-enhanced official embed player
 - Layered resolution: Streamlink → yt-dlp → HTML and embedded JSON scan → isolated Chromium network observation
-- Browser playback for HLS, HTTP-FLV, and native HTML5 video
+- Browser playback for HLS, DRM-free MPEG-DASH, HTTP-FLV, and native HTML5 video
 - Detection for common DRM markers in DASH and HLS; the resolver stops and sends you back to the authorized platform when it finds protected media
 - Local HLS manifest rewriting for relative segments, keys, and child playlists
 - Proxy protection against loopback and private network targets to reduce SSRF risk
@@ -158,7 +165,7 @@ Run this file once:
 setup_conda.bat
 ```
 
-Then double-click:
+Then double-click. The launcher automatically detects a project `.venv`, Anaconda, Miniconda, or a custom Conda base directory:
 
 ```text
 run.bat
@@ -188,7 +195,7 @@ python src/main.py --port 9000 --no-browser
 3. Enable Deep Mode to validate the target before playback. The resolver tries site plugins, generic extraction, static page scanning, and isolated browser network observation in order. YouTube uses the official embed player.
 4. Paste a full `https://` URL into the search box to create a resolvable result card.
 
-Results depend on platform availability, live status, and your network. Paid sports platforms often require their website or official app. Arena Stream does not extract protected media from those services.
+Results depend on platform availability, live status, and your network. CCTV-5/CCTV-5+ playback stays on official CCTV pages, and availability depends on your region and the rights for each event; Arena Stream does not bypass regional restrictions. Paid sports platforms often require their website or official app. Arena Stream does not extract protected media from those services.
 
 ## Architecture
 
@@ -205,7 +212,7 @@ src/
     ├── index.html       # Search and player interface
     ├── styles.css
     ├── app.js
-    └── vendor/          # Local hls.js, mpegts.js, and license files
+    └── vendor/          # Local hls.js, dash.js, mpegts.js, and license files
 tests/                   # Standard library unittest suite
 ```
 
@@ -219,11 +226,12 @@ python -m unittest discover -s tests -v
 
 ## Packaging
 
-Double-click `build.bat` to create `dist\ArenaStream.exe`. The package includes the web assets, `hls.js`, `mpegts.js`, and the Playwright Python runtime. `setup_conda.bat` installs the Chromium browser files on your computer. Without Chromium, Arena Stream uses static scanning and generic resolution.
+Double-click `build.bat` to create `dist\ArenaStream.exe`. The build only replaces that target and preserves other versioned files in `dist`. The package includes the web assets, `hls.js`, `dash.js`, `mpegts.js`, and the Playwright Python runtime. `setup_conda.bat` installs the Chromium browser files on your computer. Without Chromium, Arena Stream uses static scanning and generic resolution.
 
 ## Technical References
 
 - [hls.js](https://github.com/video-dev/hls.js): HLS/MSE playback in the browser
+- [dash.js](https://github.com/Dash-Industry-Forum/dash.js): DRM-free MPEG-DASH playback in the browser
 - [mpegts.js](https://github.com/xqq/mpegts.js): HTTP-FLV/MPEG-TS playback in the browser
 - [Streamlink](https://github.com/streamlink/streamlink): live streaming site resolution
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp): public video search and media information extraction

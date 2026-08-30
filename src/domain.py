@@ -8,7 +8,7 @@ from typing import Literal
 
 Sport = Literal["all", "football", "basketball", "f1", "nfl"]
 LiveStatus = Literal["live", "upcoming", "replay", "unknown"]
-PlaybackKind = Literal["embed", "hls", "flv", "native"]
+PlaybackKind = Literal["embed", "external", "hls", "dash", "flv", "native"]
 
 
 @dataclass(slots=True)

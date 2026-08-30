@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import html as html_lib
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from domain import SearchResult, Sport
@@ -19,6 +21,11 @@ try:
     from ddgs import DDGS
 except ImportError:  # pragma: no cover
     DDGS = None
+
+try:
+    import requests
+except ImportError:  # pragma: no cover
+    requests = None
 
 
 SPORT_HINTS: dict[Sport, str] = {
@@ -48,6 +55,16 @@ CHINESE_LIVE_DOMAINS: tuple[str, ...] = (
     "kuaishou.com",
 )
 
+GLOBAL_LIVE_DOMAINS: tuple[str, ...] = (
+    "twitch.tv",
+    "youtube.com",
+    "plus.fifa.com",
+    "redbull.com",
+    "olympics.com",
+)
+
+LIVE_PLATFORM_DOMAINS: tuple[str, ...] = tuple(dict.fromkeys(CHINESE_LIVE_DOMAINS + GLOBAL_LIVE_DOMAINS))
+
 DOMAIN_LABELS = {
     "live.bilibili.com": "哔哩哔哩直播",
     "bilibili.com": "哔哩哔哩",
@@ -62,6 +79,9 @@ DOMAIN_LABELS = {
     "youtube.com": "YouTube",
     "youtu.be": "YouTube",
     "twitch.tv": "Twitch",
+    "plus.fifa.com": "FIFA+",
+    "redbull.com": "Red Bull TV",
+    "olympics.com": "Olympics.com",
 }
 
 TRACKING_PARAMS = {"spm_id_from", "vd_source", "from", "source", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"}
@@ -69,10 +89,213 @@ URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 LIVE_TERMS = ("直播中", "正在直播", "live now", " is live ", "现场直播", "🔴")
 UPCOMING_TERMS = ("即将直播", "即将开始", "预约", "upcoming", "premieres")
 REPLAY_TERMS = ("回放", "集锦", "录像", "highlights", "replay", "full match")
+SEARCH_PROVIDER_TIMEOUT = 18.0
+
+OFFICIAL_CHANNELS: tuple[dict[str, object], ...] = (
+    {
+        "id": "official-cctv5",
+        "title": "CCTV-5 体育频道",
+        "url": "https://tv.cctv.com/live/cctv5/",
+        "channel": "央视网官方直播页 · 赛事可能受地区版权限制",
+        "aliases": ("cctv5", "cctv-5", "cctv 5", "cctv5直播", "央视5", "央视五套", "中央五套", "央视体育", "央视体育频道"),
+    },
+    {
+        "id": "official-cctv5plus",
+        "title": "CCTV-5+ 体育赛事频道",
+        "url": "https://tv.cctv.com/live/cctv5plus/",
+        "channel": "央视网官方直播页 · 赛事可能受地区版权限制",
+        "aliases": ("cctv5+", "cctv-5+", "cctv 5+", "cctv5plus", "cctv5+直播", "央视5+", "央视体育赛事", "体育赛事频道"),
+    },
+)
+
+PLATFORM_SEARCHES: tuple[tuple[str, str, str], ...] = (
+    ("哔哩哔哩直播", "https://search.bilibili.com/live", "keyword"),
+    ("虎牙直播", "https://www.huya.com/search", "hsk"),
+    ("斗鱼直播", "https://www.douyu.com/search/", "kw"),
+    ("Twitch", "https://www.twitch.tv/search", "term"),
+    ("YouTube", "https://www.youtube.com/results", "search_query"),
+)
 
 
 class SearchError(RuntimeError):
     pass
+
+
+def _normalise_channel_query(value: str) -> str:
+    value = value.casefold().replace("＋", "+").replace("+", "plus")
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]", "", value)
+
+
+class OfficialChannelProvider:
+    """Small, deterministic directory of official free-to-air channel pages."""
+
+    name = "央视官方频道"
+
+    @staticmethod
+    def is_channel_query(query: str) -> bool:
+        needle = _normalise_channel_query(query)
+        if not needle:
+            return False
+        return any(
+            needle == _normalise_channel_query(alias)
+            for channel in OFFICIAL_CHANNELS
+            for alias in channel["aliases"]
+        )
+
+    def search(self, query: str, sport: Sport = "all", limit: int = 18, deep: bool = False) -> list[SearchResult]:
+        needle = _normalise_channel_query(query)
+        results: list[SearchResult] = []
+        for channel in OFFICIAL_CHANNELS:
+            aliases = {_normalise_channel_query(str(alias)) for alias in channel["aliases"]}
+            if needle and needle not in aliases:
+                continue
+            results.append(SearchResult(
+                id=str(channel["id"]),
+                title=str(channel["title"]),
+                url=str(channel["url"]),
+                provider=self.name,
+                channel=str(channel["channel"]),
+                sport="all",
+                live_status="live",
+                source_type="official-channel",
+                score=500.0,
+            ))
+        return results[:limit]
+
+
+class PlatformSearchProvider:
+    """Always-available links into official platform search pages."""
+
+    name = "直播平台内搜索"
+
+    def search(self, query: str, sport: Sport = "all", limit: int = 18, deep: bool = False) -> list[SearchResult]:
+        if not query:
+            return []
+        terms = f"{query} {SPORT_HINTS.get(sport, '')} 直播".strip()
+        results: list[SearchResult] = []
+        for index, (name, base_url, parameter) in enumerate(PLATFORM_SEARCHES):
+            url = f"{base_url}?{urlencode({parameter: terms})}"
+            results.append(SearchResult(
+                id=f"platform-search-{index}-{hashlib.sha1(terms.encode()).hexdigest()[:10]}",
+                title=f"在{name}查找：{query}",
+                url=url,
+                provider=name,
+                channel="平台官方搜索页 · 选择当前正在直播的房间",
+                sport=sport,
+                live_status="unknown",
+                source_type="platform-search",
+            ))
+        return results[:limit]
+
+
+def is_live_platform_url(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == domain or host.endswith(f".{domain}") for domain in LIVE_PLATFORM_DOMAINS)
+
+
+def _plain_text(value: str) -> str:
+    return " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", value or "")).split())
+
+
+class BingSearchProvider:
+    """Bing RSS search with extra queries aimed at public live-room pages."""
+
+    name = "Bing 体育搜索"
+    search_url = "https://www.bing.com/search"
+
+    def __init__(self, http_get=None):
+        self._http_get = http_get
+
+    def _get(self, *args, **kwargs):
+        if self._http_get:
+            return self._http_get(*args, **kwargs)
+        if requests is None:
+            raise SearchError("缺少 requests，无法使用 Bing 搜索。")
+        return requests.get(*args, **kwargs)
+
+    @staticmethod
+    def _queries(query: str, sport: Sport, deep: bool) -> list[str]:
+        hint = SPORT_HINTS.get(sport, "")
+        queries = [f"{query} {hint} 直播 live stream".strip()]
+        if deep:
+            chinese_sites = " OR ".join(f"site:{domain}" for domain in CHINESE_LIVE_DOMAINS)
+            global_sites = " OR ".join(f"site:{domain}" for domain in GLOBAL_LIVE_DOMAINS)
+            queries.append(f"{query} 直播 ({chinese_sites})")
+            queries.append(f"{query} live stream ({global_sites})")
+        return queries
+
+    def _search_once(self, terms: str) -> list[dict[str, str]]:
+        response = self._get(
+            self.search_url,
+            params={"q": terms, "format": "rss", "setlang": "zh-hans", "cc": "cn", "mkt": "zh-CN"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+                "Accept": "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
+            },
+            timeout=(6, 15),
+        )
+        response.raise_for_status()
+        content = response.content
+        if len(content) > 2 * 1024 * 1024:
+            raise SearchError("Bing 搜索响应过大。")
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError as exc:
+            raise SearchError("Bing 返回了无法识别的搜索结果。") from exc
+        rows: list[dict[str, str]] = []
+        for item in root.findall(".//item"):
+            rows.append({
+                "title": _plain_text(item.findtext("title") or ""),
+                "url": (item.findtext("link") or "").strip(),
+                "description": _plain_text(item.findtext("description") or ""),
+            })
+        return rows
+
+    def search(self, query: str, sport: Sport = "all", limit: int = 18, deep: bool = False) -> list[SearchResult]:
+        rows: list[dict[str, str]] = []
+        queries = self._queries(query, sport, deep)
+        try:
+            with ThreadPoolExecutor(max_workers=len(queries), thread_name_prefix="arena-bing") as executor:
+                futures = [executor.submit(self._search_once, terms) for terms in queries]
+                for future in as_completed(futures):
+                    try:
+                        rows.extend(future.result())
+                    except Exception:
+                        continue
+        except Exception as exc:
+            raise SearchError(_network_message(exc)) from exc
+        if not rows:
+            raise SearchError("Bing 暂时没有返回搜索结果。")
+
+        results: list[SearchResult] = []
+        seen: set[str] = set()
+        for row in rows:
+            url = row["url"]
+            if not URL_RE.match(url):
+                continue
+            key = canonical_url(url)
+            if key in seen:
+                continue
+            seen.add(key)
+            title = row["title"] or provider_for_url(url)
+            description = row["description"]
+            live_room = is_live_platform_url(url)
+            site = provider_for_url(url)
+            results.append(SearchResult(
+                id=hashlib.sha1(key.encode()).hexdigest()[:16],
+                title=title,
+                url=url,
+                provider=f"Bing · {site}",
+                channel="公开直播平台页面" if live_room else "Bing 网页结果",
+                sport=detect_sport(f"{title} {description}", sport),
+                live_status=infer_live_status(f"{title} {description}"),
+                description=description[:280],
+                source_type="live-room-search" if live_room else "bing-search",
+            ))
+            if len(results) >= limit:
+                break
+        return results
 
 
 def detect_sport(text: str, fallback: Sport = "all") -> Sport:
@@ -293,8 +516,9 @@ class WebMetaSearchProvider:
 
 
 class SearchService:
-    def __init__(self, providers=None):
-        self.providers = providers or [YouTubeSearchProvider(), WebMetaSearchProvider()]
+    def __init__(self, providers=None, official_provider=None):
+        self.providers = providers if providers is not None else [YouTubeSearchProvider(), WebMetaSearchProvider(), BingSearchProvider(), PlatformSearchProvider()]
+        self.official_provider = official_provider or OfficialChannelProvider()
 
     def search(self, query: str, sport: Sport = "all", limit: int = 30, deep: bool = True) -> list[SearchResult]:
         query = " ".join(query.split())[:120]
@@ -314,22 +538,40 @@ class SearchService:
                 score=1000,
             )]
 
-        merged: dict[str, SearchResult] = {}
+        official_results = self.official_provider.search(query, sport, limit, deep)
+        # The home screen and exact channel-name searches should remain useful
+        # even when every internet search provider is slow or unavailable.
+        if not query or self.official_provider.is_channel_query(query):
+            return official_results
+
+        merged: dict[str, SearchResult] = {canonical_url(item.url): item for item in official_results}
         errors: list[str] = []
         per_provider = min(30, max(12, limit))
-        with ThreadPoolExecutor(max_workers=len(self.providers), thread_name_prefix="arena-search") as executor:
-            futures = {executor.submit(provider.search, query, sport, per_provider, deep): provider for provider in self.providers}
-            for future in as_completed(futures):
-                try:
-                    found = future.result()
-                except SearchError as exc:
-                    errors.append(str(exc))
-                    continue
-                for item in found:
-                    key = canonical_url(item.url)
-                    current = merged.get(key)
-                    if current is None or (item.thumbnail and not current.thumbnail):
-                        merged[key] = item
+        if self.providers:
+            executor = ThreadPoolExecutor(max_workers=len(self.providers), thread_name_prefix="arena-search")
+            try:
+                futures = {executor.submit(provider.search, query, sport, per_provider, deep): provider for provider in self.providers}
+                completed, pending = wait(futures, timeout=SEARCH_PROVIDER_TIMEOUT)
+                for future in completed:
+                    try:
+                        found = future.result()
+                    except SearchError as exc:
+                        errors.append(str(exc))
+                        continue
+                    except Exception as exc:
+                        errors.append(_network_message(exc))
+                        continue
+                    for item in found:
+                        key = canonical_url(item.url)
+                        current = merged.get(key)
+                        if current is None or (item.thumbnail and not current.thumbnail):
+                            merged[key] = item
+                for future in pending:
+                    future.cancel()
+                if pending:
+                    errors.append("部分搜索源响应较慢，已先返回现有结果。")
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
 
         if not merged and errors:
             raise SearchError("；".join(dict.fromkeys(errors)))
@@ -350,6 +592,14 @@ class SearchService:
                 score += 4
             if item.source_type == "video-search":
                 score += 5
+            if item.source_type == "official-channel":
+                score += 500
+            if item.source_type == "bing-search":
+                score += 8
+            if item.source_type == "live-room-search":
+                score += 24
+            if item.source_type == "platform-search":
+                score += 12
             if any(domain in item.url for domain in CHINESE_LIVE_DOMAINS):
                 score += 8
             item.score = score

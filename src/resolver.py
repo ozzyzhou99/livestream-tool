@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover
 
 
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
+CCTV_LIVE_HOSTS = {"tv.cctv.com"}
 
 
 class ResolveError(RuntimeError):
@@ -45,7 +46,18 @@ def youtube_video_id(url: str) -> str | None:
 
 def media_kind(url: str) -> str | None:
     kind = discovered_kind(url)
-    return kind if kind in {"hls", "flv", "native"} else None
+    return kind if kind in {"hls", "dash", "flv", "native"} else None
+
+
+def official_cctv_live_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host not in CCTV_LIVE_HOSTS:
+        return None
+    match = re.fullmatch(r"/live/(cctv(?:5|5plus))(?:/(?:m|sd))?/?(?:index\.shtml)?", parsed.path, re.IGNORECASE)
+    if not match:
+        return None
+    return f"https://tv.cctv.com/live/{match.group(1).lower()}/"
 
 
 class StreamResolver:
@@ -58,6 +70,16 @@ class StreamResolver:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ResolveError("请输入有效的 http(s) 直播页面或媒体地址。")
+
+        official_url = official_cctv_live_url(url)
+        if official_url:
+            return ResolvedStream(
+                source_url=url,
+                playback_url=official_url,
+                kind="external",
+                engine="cctv-official",
+                diagnostics=("央视频道使用官方播放器", "播放范围由央视按地区与赛事版权决定"),
+            )
 
         video_id = youtube_video_id(url)
         if video_id:
@@ -72,9 +94,18 @@ class StreamResolver:
         direct_kind = discovered_kind(url)
         if direct_kind == "dash":
             candidate = self.page_scanner.probe(url, f"{parsed.scheme}://{parsed.netloc}/", source="direct")
+            if candidate is None:
+                raise ResolveError("无法读取并验证 DASH 清单，已停止播放以避免处理未知的受保护媒体。")
             if candidate and candidate.drm:
                 raise ResolveError("检测到 DRM 保护的 DASH 清单，工具不会获取许可证或解密。")
-            raise ResolveError("发现 DASH 清单，但当前浏览器工作台只直接播放 HLS、FLV 与 HTML5 媒体。")
+            return ResolvedStream(
+                source_url=url,
+                playback_url=url,
+                kind="dash",
+                referer=f"{parsed.scheme}://{parsed.netloc}/",
+                engine="direct",
+                diagnostics=("输入为无 DRM 的 MPEG-DASH 媒体地址",),
+            )
         if direct_kind in {"hls", "flv", "native"}:
             if direct_kind == "hls":
                 candidate = self.page_scanner.probe(url, f"{parsed.scheme}://{parsed.netloc}/", source="direct")
@@ -124,7 +155,7 @@ class StreamResolver:
 
     @staticmethod
     def _from_candidates(source_url: str, candidates, diagnostics: list[str]) -> ResolvedStream | None:
-        priority = {"hls": 0, "native": 1, "flv": 2}
+        priority = {"hls": 0, "dash": 1, "native": 2, "flv": 3}
         playable = [item for item in candidates if not item.drm and item.kind in priority]
         playable.sort(key=lambda item: priority[item.kind])
         if not playable:

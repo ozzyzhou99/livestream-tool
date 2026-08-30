@@ -45,7 +45,11 @@ class ServerTests(unittest.TestCase):
             return json.loads(response.read().decode("utf-8"))
 
     def test_health(self):
-        self.assertTrue(self.get_json("/api/health")["ok"])
+        payload = self.get_json("/api/health")
+        self.assertTrue(payload["ok"])
+        self.assertIn("official-cctv-channels", payload["capabilities"])
+        self.assertIn("bing-web-search", payload["capabilities"])
+        self.assertIn("mpeg-dash", payload["capabilities"])
 
     def test_search(self):
         payload = self.get_json("/api/search?q=test&sport=football")
@@ -70,6 +74,7 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(response.headers["Referrer-Policy"], "strict-origin-when-cross-origin")
         self.assertIn("ARENA", body)
         self.assertIn('referrerpolicy="strict-origin-when-cross-origin"', body)
+        self.assertIn('/vendor/dash.all.min.js', body)
 
     def test_client_disconnect_is_not_raised(self):
         self.assertFalse(write_client_chunk(AbortedWriter(), b"media"))

@@ -1,10 +1,12 @@
 import sys
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from search import YouTubeSearchProvider, detect_sport, video_platform_status
+from search import BingSearchProvider, OfficialChannelProvider, PlatformSearchProvider, SearchService, YouTubeSearchProvider, detect_sport, video_platform_status
 
 
 class FakeYDL:
@@ -32,7 +34,65 @@ class FakeYDL:
         }
 
 
+class FakeBingResponse:
+    content = b"""<?xml version='1.0' encoding='utf-8'?>
+    <rss><channel>
+      <item><title>Arsenal Live Now</title><link>https://www.twitch.tv/arsenal</link><description>Official sports live stream</description></item>
+      <item><title>Match report</title><link>https://example.com/report</link><description>News article</description></item>
+    </channel></rss>"""
+
+    def raise_for_status(self):
+        return None
+
+
+class SlowSearchProvider:
+    def search(self, *_args, **_kwargs):
+        time.sleep(0.1)
+        return []
+
+
 class SearchTests(unittest.TestCase):
+    def test_bing_rss_results_include_live_room_source(self):
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append((url, kwargs))
+            return FakeBingResponse()
+
+        provider = BingSearchProvider(http_get=fake_get)
+        results = provider.search("Arsenal", "football", 10, deep=False)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0].provider, "Bing · Twitch")
+        self.assertEqual(results[0].source_type, "live-room-search")
+        self.assertEqual(calls[0][1]["params"]["format"], "rss")
+
+    def test_platform_search_links_are_query_specific(self):
+        results = PlatformSearchProvider().search("阿森纳", "football", 10)
+        self.assertEqual(len(results), 5)
+        self.assertTrue(all(item.source_type == "platform-search" for item in results))
+        self.assertIn("keyword=", results[0].url)
+        self.assertIn("%E9%98%BF%E6%A3%AE%E7%BA%B3", results[0].url)
+
+    def test_slow_provider_does_not_block_available_results(self):
+        service = SearchService(providers=[PlatformSearchProvider(), SlowSearchProvider()])
+        started = time.monotonic()
+        with patch("search.SEARCH_PROVIDER_TIMEOUT", 0.01):
+            results = service.search("阿森纳", "football", 10)
+        self.assertLess(time.monotonic() - started, 0.08)
+        self.assertTrue(any(item.source_type == "platform-search" for item in results))
+
+    def test_official_cctv5_alias_returns_stable_channel(self):
+        provider = OfficialChannelProvider()
+        results = provider.search("央视五套", "all", 10)
+        self.assertEqual([item.id for item in results], ["official-cctv5"])
+        self.assertEqual(results[0].url, "https://tv.cctv.com/live/cctv5/")
+        self.assertEqual(results[0].source_type, "official-channel")
+
+    def test_empty_search_returns_official_channels_without_network(self):
+        service = SearchService(providers=[])
+        results = service.search("", "all", 10)
+        self.assertEqual([item.id for item in results], ["official-cctv5", "official-cctv5plus"])
+
     def test_search_normalises_and_deduplicates_results(self):
         provider = YouTubeSearchProvider(ydl_factory=FakeYDL)
         results = provider.search("Monaco", "f1", 10)
